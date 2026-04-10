@@ -8,6 +8,8 @@ from torch.nn import functional as F
 
 import math
 
+import tiktoken
+
 class CausalSelfAttention(nn.Module):
     def __init__(self, config:GPTConfig):
         super().__init__()
@@ -85,7 +87,7 @@ class GPT(nn.Module):
         self.config = config
         self.transformer = nn.ModuleDict(dict(
                 wte = nn.Embedding(config.vocab_size,config.n_embd),
-                wpe = nn.Embedding(config.block_size , config.n_embd),
+                wpe = nn.Embedding(config.block_size,config.n_embd),
                 h = nn.ModuleList(Block(config) for _ in range(config.n_layer) ),
                 ln_f = nn.LayerNorm(config.n_embd),
             ))
@@ -110,10 +112,6 @@ class GPT(nn.Module):
         logits = self.lm_head(x)
 
         return logits
-
-
-
-
 
     @classmethod
     def from_pretrained(cls, model_type, override_args=None):
@@ -178,6 +176,9 @@ class GPT(nn.Module):
 num_return_sequences = 5
 max_length = 30
 
+torch.manual_seed(42)
+torch.cuda.manual_seed(42)
+
 device = "cpu"
 if torch.cuda.is_available():
     device = "cuda"
@@ -186,15 +187,31 @@ elif hasattr(torch.backends,"mps") and torch.backends.mps.is_available():
 
 print("using device:",device)
 
+
+with open('data/shakespeare/input.txt','r') as f:
+    text = f.read()
+
+data = text[:1000]
+
+enc = tiktoken.get_encoding('gpt2')
+tokens = enc.encode(data)
+B,T = 4, 32
+buf = torch.tensor(tokens[:B*T+1])
+x = buf[:-1].view(B,T)
+y = buf[1:].view(B,T)
+
+
 model = GPT(GPTConfig())
-
-model.eval()
 model.to(device=device)
+logits:torch.Tensor = model(x)
+
+print(logits.shape)
 
 
 
 
 
-
+# while x.size(1) < max_length:
+#     pass
 
 
