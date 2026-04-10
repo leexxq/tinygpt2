@@ -8,8 +8,6 @@ from torch.nn import functional as F
 
 import math
 
-
-
 class CausalSelfAttention(nn.Module):
     def __init__(self, config:GPTConfig):
         super().__init__()
@@ -177,9 +175,26 @@ class GPT(nn.Module):
 
 
 
+num_return_sequences = 5
+max_length = 30
 
-#-------
-model = GPT.from_pretrained('gpt2')
+device = "cpu"
+if torch.cuda.is_available():
+    device = "cuda"
+elif hasattr(torch.backends,"mps") and torch.backends.mps.is_available():
+    device = "mps"
+
+print("using device:",device)
+
+model = GPT(GPTConfig())
+
 model.eval()
+model.to(device=device)
 
-print("run!")
+
+
+
+
+
+
+
