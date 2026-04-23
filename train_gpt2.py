@@ -1,6 +1,4 @@
-
 from dataclasses import dataclass
-from typing import Any
 
 import torch
 import torch.nn as nn 
@@ -10,7 +8,7 @@ from torch.nn import functional as F
 import math
 
 import tiktoken
-class DataLoaderLIte:
+class DataLoaderLite:
     def __init__(self,B,T) :
         self.B = B
         self.T = T
@@ -127,7 +125,7 @@ class GPT(nn.Module):
             ))
         self.lm_head = nn.Linear(config.n_embd,config.vocab_size ,bias=False)
 
-        assert type(self.transformer.wte) == nn.Embedding
+        assert isinstance(self.transformer.wte ,nn.Embedding)
         self.transformer.wte.weight = self.lm_head.weight 
         self.apply(self.__init_weights)
 
@@ -152,21 +150,20 @@ class GPT(nn.Module):
     def forward(self,idx:torch.Tensor,targets = None):
         B,T = idx.size()
         assert T <= self.config.block_size , f"connot forward sequence of lenth{T},block size is {self.config.block_size}"
-
         pos = torch.arange(0,T,dtype= torch.long,device=idx.device)
 
-        assert type(self.transformer.wpe) == nn.Embedding
-        assert type(self.transformer.wte) == nn.Embedding
+        assert isinstance(self.transformer.wpe,nn.Embedding)
+        assert isinstance(self.transformer.wte,nn.Embedding)
         pos_emb = self.transformer.wpe(pos) 
         tok_emb = self.transformer.wte(idx) 
 
         x = pos_emb + tok_emb
 
-        assert type(self.transformer.h) == nn.ModuleList
+        assert isinstance(self.transformer.h,nn.ModuleList)
         for block in self.transformer.h:
             x = block(x)
 
-        assert type(self.transformer.ln_f) == nn.LayerNorm
+        assert isinstance(self.transformer.ln_f, nn.LayerNorm)
         x = self.transformer.ln_f(x)
 
         logits = self.lm_head(x) #(B,T,vocab_size)
@@ -277,7 +274,7 @@ elif hasattr(torch.backends,"mps") and torch.backends.mps.is_available():
 
 print("using device:",device)
 
-train_loader = DataLoaderLIte(B=B,T=T)
+train_loader = DataLoaderLite(B=B,T=T)
 
 # torch.set_float32_matmul_precision('medium')
 
@@ -300,19 +297,21 @@ for step in range(max_step):
         # with torch.autocast(device_type=device,dtype=torch.bfloat16):
         #     logits ,loss = model(x,y)
         logits ,loss = model(x,y)
-        assert type(loss) ==  torch.Tensor
+        assert isinstance(loss,torch.Tensor)
         loss = loss / grad_accum_steps #ensure accum loss equal to origin loss
         loss_accum += loss.detach()
         loss.backward()
 
     norm = torch.nn.utils.clip_grad_norm_(model.parameters(),1.0)
+
     lr = get_lr(step)
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
     optimizer.step()
-    torch.mps.synchronize()
+    if device == 'cuda':
+        torch.cuda.synchronize()
+    elif device == 'mps':
+        torch.mps.synchronize()
     t1 = time.time()
     dt = (t1 - t0) * 1000
     print(f"step{step},loss:{loss_accum:.3f},lr:{lr:.6f},norm:{norm:.4f},dt:{dt:.2f}ms")
-
-import sys; sys.exit(0)
