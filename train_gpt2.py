@@ -7,15 +7,20 @@ from torch.nn import functional as F
 
 import math
 
-import tiktoken
+    
+
 class DataLoaderLite:
     def __init__(self,B,T) :
         self.B = B
         self.T = T
         with open('data/shakespeare/input.txt','r') as f:
             text = f.read()
-
-        enc = tiktoken.get_encoding('gpt2')
+        try:
+            import tiktoken
+            enc = tiktoken.get_encoding('gpt2')
+        except :
+            import tokenizer.encoder
+            enc = tokenizer.encoder.get_encoder('tokenizer')
         tokens = enc.encode(text)
         self.tokens = torch.tensor(tokens)
 
