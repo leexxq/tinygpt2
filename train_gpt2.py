@@ -68,8 +68,8 @@ class CausalSelfAttention(nn.Module):
         self.register_buffer('bias',torch.tril(torch.ones(config.block_size,config.block_size))\
                              .view(1,1,config.block_size,config.block_size))
 
-        # if hasattr(F,'scaled_dot_product_attention') :
-        if False:
+
+        if hasattr(F,'scaled_dot_product_attention') :
             self._sdpa = F.scaled_dot_product_attention;
         else:
             self._sdpa = CausalSelfAttention._scaled_dot_product_attention;
@@ -116,6 +116,7 @@ class CausalSelfAttention(nn.Module):
         # att = F.softmax(att,dim=-1)
         # y = att @ v #(B,nh,T,T) @ (B,nh,T,ns) -> (B,nh,T,ns)
         # flash attention
+        
         y = self._sdpa(q,k,v,is_causal=True)
         y = y.transpose(1,2).contiguous().view(B,T,C) # (B,nh,T,ns) -> (B,T,nh,ns) -> (B,T,C)
         y = self.c_proj(y)
