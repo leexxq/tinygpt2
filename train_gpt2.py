@@ -7,6 +7,16 @@ from torch.nn import functional as F
 
 import math
 
+@dataclass
+class GPTConfig:
+    block_size: int = 1024
+    vocab_size: int = 50304 # GPT-2 vocab_size of 50257, padded up to nearest multiple of 64 for efficiency
+    n_layer: int = 12
+    n_head: int = 12
+    n_embd: int = 768
+    # dropout: float = 0.0
+    # bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
+
     
 
 class DataLoaderLite:
@@ -44,6 +54,7 @@ class DataLoaderLite:
 
 
 
+
 class CausalSelfAttention(nn.Module):
     def __init__(self, config:GPTConfig):
         super().__init__()
@@ -56,6 +67,40 @@ class CausalSelfAttention(nn.Module):
         self.n_head = config.n_head
         self.register_buffer('bias',torch.tril(torch.ones(config.block_size,config.block_size))\
                              .view(1,1,config.block_size,config.block_size))
+
+        # if hasattr(F,'scaled_dot_product_attention') :
+        if False:
+            self._sdpa = F.scaled_dot_product_attention;
+        else:
+            self._sdpa = CausalSelfAttention._scaled_dot_product_attention;
+
+    # Efficient implementation equivalent to the following:
+    @staticmethod
+    def _scaled_dot_product_attention(query, key, value, attn_mask=None, dropout_p=0.0,
+            is_causal=False, scale=None, enable_gqa=False) -> torch.Tensor:
+        L, S = query.size(-2), key.size(-2)
+        scale_factor = 1 / math.sqrt(query.size(-1)) if scale is None else scale
+        attn_bias = torch.zeros(L, S, dtype=query.dtype, device=query.device)
+        if is_causal:
+            assert attn_mask is None
+            temp_mask = torch.ones(L, S, dtype=torch.bool).tril(diagonal=0).to(device=query.device)
+            attn_bias.masked_fill_(temp_mask.logical_not(), float("-inf"))
+
+        if attn_mask is not None:
+            if attn_mask.dtype == torch.bool:
+                attn_bias.masked_fill_(attn_mask.logical_not(), float("-inf"))
+            else:
+                attn_bias = attn_mask + attn_bias
+
+        if enable_gqa:
+            key = key.repeat_interleave(query.size(-3)//key.size(-3), -3)
+            value = value.repeat_interleave(query.size(-3)//value.size(-3), -3)
+
+        attn_weight = query @ key.transpose(-2, -1) * scale_factor
+        attn_weight += attn_bias
+        attn_weight = torch.softmax(attn_weight, dim=-1)
+        attn_weight = torch.dropout(attn_weight, dropout_p, train=True)
+        return attn_weight @ value
 
     def forward(self,x):
         B,T,C = x.size()
@@ -71,9 +116,7 @@ class CausalSelfAttention(nn.Module):
         # att = F.softmax(att,dim=-1)
         # y = att @ v #(B,nh,T,T) @ (B,nh,T,ns) -> (B,nh,T,ns)
         # flash attention
-        y = F.scaled_dot_product_attention(q,k,v,is_causal=True)
-
-
+        y = self._sdpa(q,k,v,is_causal=True)
         y = y.transpose(1,2).contiguous().view(B,T,C) # (B,nh,T,ns) -> (B,T,nh,ns) -> (B,T,C)
         y = self.c_proj(y)
         
@@ -107,16 +150,6 @@ class Block(nn.Module):
         x = x + self.mlp(self.ln_2(x))
         return x
 
-
-@dataclass
-class GPTConfig:
-    block_size: int = 1024
-    vocab_size: int = 50304 # GPT-2 vocab_size of 50257, padded up to nearest multiple of 64 for efficiency
-    n_layer: int = 12
-    n_head: int = 12
-    n_embd: int = 768
-    # dropout: float = 0.0
-    # bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
 
 class GPT(nn.Module):
     def __init__(self,config:GPTConfig):
@@ -266,16 +299,13 @@ def get_lr(iter):
 
 
 torch.manual_seed(1337)
-if torch.cuda.is_available():
-    torch.cuda.manual_seed(1337)
-if torch.mps.is_available():
-    torch.mps.manual_seed(1337)
-
 device = "cpu"
 if torch.cuda.is_available():
     device = "cuda"
+    torch.cuda.manual_seed(1337)
 elif hasattr(torch.backends,"mps") and torch.backends.mps.is_available():
     device = "mps"
+    torch.mps.manual_seed(1337)
 
 print("using device:",device)
 
